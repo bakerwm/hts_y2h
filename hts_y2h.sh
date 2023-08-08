@@ -28,9 +28,11 @@
 
 ################################################################################
 ## Global variables
+src_dir=$(dirname $(realpath -s $0))
 CPU=16
 HG38_IDX="/data/yulab/hiseq001/data/genome/hg38/hisat2_index/hg38"
-GENE_BED="/data/yulab/hiseq001/user/wangming/hts_y2h/data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
+#GENE_BED="/data/yulab/hiseq001/user/wangming/hts_y2h/data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
+GENE_BED="${src_dir}/../data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
 SRC_DIR=$(dirname $(realpath -s $0)) # path to current scirpt
 ANNO_PY="${SRC_DIR}/anno_bed.py"
 # [[ ! -f ${ANNO_PY} ]] && echo "script not found: ${ANNO_PY}" && exit 1
