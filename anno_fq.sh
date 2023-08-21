@@ -3,13 +3,13 @@
 ################################################################################
 ## Global variables
 SRC_DIR=$(dirname $(realpath -s $0))
-N_CPU=16
+[[ -z ${N_CPU} ]] && N_CPU=8
 HG38_IDX="/data/biodata/genome/hg38/hisat2_index/hg38"
-GENE_GTF="/data/biodata/ensembl/release-106/gtf/homo_sapiens/Homo_sapiens.GRCh38.106.gtf.gz"
-PARSE_GTF="${SRC_DIR}/parse_gtf.py"
+# GENE_GTF="/data/biodata/ensembl/release-106/gtf/homo_sapiens/Homo_sapiens.GRCh38.106.gtf.gz"
+# PARSE_GTF="${SRC_DIR}/parse_gtf.py"
 ANNO_PY="${SRC_DIR}/anno_bed.py"
-[[ ! -f ${GENE_GTF} ]] && echo "hg38 gtf not found: ${GENE_GTF}" && exit 1
-[[ ! -f ${PARSE_GTF} ]] && echo "script not found: ${PARSE_GTF}" && exit 1
+# [[ ! -f ${GENE_GTF} ]] && echo "hg38 gtf not found: ${GENE_GTF}" && exit 1
+# [[ ! -f ${PARSE_GTF} ]] && echo "script not found: ${PARSE_GTF}" && exit 1
 [[ ! -f ${ANNO_PY} ]] && echo "script not found: ${ANNO_PY}" && exit 1
 [[ ! -f ${HG38_IDX}.1.ht2 ]] && echo "hisat2 index not found: ${HG38_IDX}" && exit 1
 ################################################################################
@@ -61,42 +61,49 @@ function align_hg38() {
 export -f align_hg38
 
 
+# para: <out_dir> <gene_bed> <in_bed>
 function anno_bed() {
+    [[ $# -lt 3 ]] && echo "Usage: anno_bed <out_dir> <gene_bed> <in_bed>" && return 1
     local out_dir=$1
-    local in_bed=$2 # query
-    local bname=$(basename ${in_bed%.bed}.anno.bed)
+    local gene_bed=$2
+    local in_bed=$3 # query
+    local bname=$(basename ${in_bed%.bed}.anno.bed) # new name
     local out_bed="${out_dir}/${bname}" # output 
     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
     # prepare bed
-    local gname=$(basename ${GENE_GTF%.gz})
-    gname=${gname%.gtf} # trim suffix
-    local gene_bed="${out_dir}/db/${gname}.bed.gz" # bgzipped compressed
-    gtf2bed ${out_dir}/db ${GENE_GTF}
+    local gname=$(basename ${gene_bed%.gz})
+    gname=${gname%.bed}
+    # local gname=$(basename ${GENE_GTF%.gz})
+    # gname=${gname%.gtf} # trim suffix
+    ## move gene_bed to parameter
+    # local gene_bed="${out_dir}/db/${gname}.bed.gz" # bgzipped compressed
+    # gtf2bed ${out_dir}/db ${GENE_GTF}
     [[ ! -f ${out_bed} ]] && python ${ANNO_PY} ${gene_bed} ${in_bed} ${out_bed}
+    [[ -f ${out_bed} ]] && echo ${out_bed} 
 }
 export -f anno_bed
 
 
-# annotate fastq, from 
+# annotate fastq, by gene_bed
+# para: <out_dir> <gene_bed> <fq>
 function anno_fq() {
-    [[ $# -lt 2 ]] && echo "Usage: anno_fq <out_dir> <fq>" && return 1
+    [[ $# -lt 3 ]] && echo "Usage: anno_fq <out_dir> <gene_bed> <fq>" && return 1
     local out_dir=$1
-    local fq_in=$2 # fq.gz
+    local gene_bed=$2
+    local fq_in=$3 # fq.gz
     local fname="$(basename ${fq_in%.fq.gz})"
-    local bed="${out_dir}/${fname}.bed"
+    local bed_raw="${out_dir}/${fname}.bed"
     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
     # 1. map to hg38 genome
-    echo "[1/2] - mapping reads to hg38 genome"
-    [[ ! -f ${bed} ]] && align_hg38 ${out_dir} ${fq_in}
+    echo "    [1/2] - mapping reads to hg38 genome"
+    [[ ! -f ${bed_raw} ]] && align_hg38 ${out_dir} ${fq_in}
     # 2. get annotation (gene_name)
-    echo "[2/2] - annotating mapped reads by gene_name"
-    anno_bed ${out_dir} ${bed} 
+    echo "    [2/2] - annotating mapped reads by gene_name"
+    local bed_anno=$(anno_bed ${out_dir} ${gene_bed} ${bed_raw})
     # 3. log
-    echo "... save to file: ${bed%.bed}.anno.bed" #
+    echo "    ... save to file: ${bed_anno}" #
 }
 export -f anno_fq
-
-
 
 
 anno_fq $@

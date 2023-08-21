@@ -62,18 +62,18 @@
 # 3. annotate read1, read2 (gene)
 #
 
-# ################################################################################
-# ## Global variables
+################################################################################
+## Global variables
 SRC_DIR=$(dirname $(realpath -s $0))
-N_CPU=8
-HG38_IDX="/data/yulab/hiseq001/data/genome/hg38/hisat2_index/hg38"
-#GENE_BED="/data/yulab/hiseq001/user/wangming/hts_y2h/data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
-GENE_BED="${SRC_DIR}/../data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
+[[ -z ${N_CPU} ]] && N_CPU=8
 SRC_DIR=$(dirname $(realpath -s $0)) # path to current scirpt
+PARSE_GTF="${SRC_DIR}/parse_gtf.py"
 ANNO_PY="${SRC_DIR}/anno_bed.py"
-# # [[ ! -f ${ANNO_PY} ]] && echo "script not found: ${ANNO_PY}" && exit 1
-# # [[ ! -f ${GENE_BED} ]] && echo "hg38 gene bed not found: ${GENE_BED}" && exit 1
-# # [[ ! -f ${HG38_IDX}.1.ht2 ]] && echo "hisat2 index not found: ${HG38_IDX}" && exit 1
+ANNO_FQ="${SRC_DIR}/anno_fq.sh"
+ANNO_FQ_PAIR="${SRC_DIR}/anno_fq_pair.sh"
+## Change the following variables accroding to your experiment ##
+HG38_IDX="/data/yulab/hiseq001/data/genome/hg38/hisat2_index/hg38"
+GENE_GTF="/data/biodata/ensembl/release-106/gtf/homo_sapiens/Homo_sapiens.GRCh38.106.gtf.gz"
 ## GLOBAL VECTOR
 TN5="CTGTCTCTTATACA"    # tn5 adapters
 VEC1="TAGAACCCAGCTTTC"  # vector-1
@@ -83,13 +83,12 @@ ATTLa="CAACTGAGAGAACTCAAGGGCACGCCCTGGCAC" # anti
 ################################################################################
 
 ## modules
-## SE mode
 function has_command() {
     if command -v $1 >/dev/null 2>&1
     then 
-        echo "yes"
+        echo "ok"
     else
-        echo "no"
+        echo "failed"
     fi
 }
 export -f has_command
@@ -98,177 +97,85 @@ export -f has_command
 function has_pymodule() {
     if python -c "import $1" &>/dev/null
     then 
-        echo "yes"
+        echo "ok"
     else
-        echo "no"
+        echo "failed"
     fi
 }
 export -f has_pymodule
 
 
 function check_commands() {
-    >&2 echo "------------------------------"
+    cmd_tag=()
+    >&2 echo "--------------------------------------------------------------------------------"
     >&2 echo "Required tools:"
-    for cmd in cutadapt hisat2 samtools 
+    for cmd in cutadapt hisat2 samtools tabix
     do 
         ss=$(has_command ${cmd})
-        >&2 printf "%4s : %-12s : %s\n" ${ss} ${cmd} $(which ${cmd})
+        >&2 printf "%6s : %-12s : %s\n" ${ss} ${cmd} $(which ${cmd})
+        cmd_tag+=("${ss}")
         echo ${ss}
     done 
     # python module
     pp=$(has_pymodule "tabix")
-    >&2 printf "%4s : %-12s : %s\n" ${pp} "tabix" "python module 'pytabix'"
+    >&2 printf "%6s : %-12s : %s\n" ${pp} "tabix" "python module 'pytabix'"
     echo ${pp}
     # genome files
-    [[ -f ${ANNO_PY} ]] && f1="yes" || f1="no"
-    [[ -f ${GENE_BED} ]] && f2="yes" || f2="no"
-    [[ -f ${HG38_IDX}.1.ht2 ]] && f3="yes" || f3="no"    
-    >&2 printf "%4s : %-12s : %s\n" ${f1} "anno_py" ${ANNO_PY}
-    >&2 printf "%4s : %-12s : %s\n" ${f2} "gene_bed" "${GENE_BED}"
-    >&2 printf "%4s : %-12s : %s\n" ${f3} "hisat2_index" "${HG38_IDX}"
-    >&2 echo "------------------------------"
-    echo ${f1} ${f2} ${f3}
+    [[ -f ${HG38_IDX}.1.ht2 ]] && f1="ok" || f1="failed"
+    [[ -f ${GENE_GTF} ]] && f2="ok" || f2="failed"
+    [[ -f ${PARSE_GTF} ]] && f3="ok" || f3="failed"
+    [[ -f ${ANNO_PY} ]] && f4="ok" || f4="failed"
+    [[ -f ${ANNO_FQ} ]] && f5="ok" || f5="failed"
+    [[ -f ${ANNO_FQ_PAIR} ]] && f6="ok" || f6="failed"
+    >&2 printf "%6s : %-12s : %s\n" ${f1} "hisat2_index" "${HG38_IDX}"
+    >&2 printf "%6s : %-12s : %s\n" ${f2} "gene_gtf" "${GENE_GTF}"
+    >&2 printf "%6s : %-12s : %s\n" ${f3} "parse_gtf" ${PARSE_GTF}
+    >&2 printf "%6s : %-12s : %s\n" ${f4} "anno_py" ${ANNO_PY}
+    >&2 printf "%6s : %-12s : %s\n" ${f5} "anno_fq" ${ANNO_FQ}
+    >&2 printf "%6s : %-12s : %s\n" ${f6} "anno_fq_pair" ${ANNO_FQ_PAIR}
+    >&2 echo "--------------------------------------------------------------------------------"
+    # chk_tag+=("${f1} ${f2} ${f3} ${f4} ${f5} ${f6}")
+    # echo ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
+    echo ${cmd_tag[@]} ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
 }
 export -f check_commands
 ################################################################################
 
 
-# function trim_attL() {
-#     local out_dir=$1
-#     local fq_in=$2
-#     local attL=$3 # sens, anti
-#     # check output 
-#     [[ ${fq_in} = *_2.fq.gz ]] && rd=2 || rd=1
-#     if [[ ${attL} = anti ]]
-#     then
-#         as="a"
-#         ad="GTGCCAGGGCGTGCCCTTGAGTTCTCTCAGTTG"
-#     else
-#         as="s"
-#         ad="CAACTGAGAGAACTCAAGGGCACGCCCTGGCAC"
-#     fi # anti/sens
-#     local suffix="_${rd}${as}"
-#     local fname=$(basename ${fq_in/.fq.gz})
-#     local fq_out="${out_dir}/${fname}${suffix}.fq.gz"
-#     local log="${out_dir}/${fname}${suffix}.cutadapt.log"
-#     [[ -f ${fq_out} ]] && echo "... file exists: ${fq_out}" && return 1
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     cutadapt -j ${N_CPU} --action trim --discard-untrimmed -O 33 -e 0.1 -m 69 -n 1 -a ${ad} -o ${fq_out} ${fq_in} > ${log}
-#     # echo ${fq_out} # file name
-# }
-# export -f trim_attL
-
-
-# function trim_vec() {
-#     local out_dir=$1
-#     local fq_in=$2
-#     local fq_out="${out_dir}/$(basename ${fq_in})"
-#     local log=${fq_out/.fq.gz/.cutadapt.log}
-#     local vec_1="TAGAACCCAGCTTTCTTGTACAAAGTGGTGAGCTTGGGCCCGTTTAAAC" # AD
-#     local vec_2="GATTATAAGGATGACGACGATAAAGGGCACTCGAGATATCTAGACCCAGCTTTCTTGTACAAAGTGGTGAGCTC" # BD
-#     [[ -f ${fq_out} ]] && echo "... file exists: ${fq_out}" && return 1
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     cutadapt -j ${N_CPU} --discard-untrimmed -O 12 -e 0.1 -m 20 -n 2 -a ${vec_1} -a ${vec_2} -o ${fq_out} ${fq_in} > ${log}
-#     # echo ${fq_out} # file name
-# }
-# export -f trim_vec
-
-
-# # Annotate fq, by gene_name/gene_id/NULL ...
-# # human library
-# function align_hg38() {
-#     local out_dir=$1
-#     local fq=$2 # fasta
-#     ## Global variable: HG38_IDX
-#     local fname=$(basename ${fq/.fq.gz})
-#     local bam="${out_dir}/${fname}.bam"
-#     local bed="${bam/.bam/.bed}"
-#     local log="${out_dir}/${fname}.hisat2.log"
-#     # [[ -f ${bam} ]] && echo "file exists: ${bam}" && return 1
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     [[ ! -f ${bam} ]] && \
-#         hisat2 -p ${N_CPU} --very-sensitive --add-chrname -x ${HG38_IDX} -U ${fq} 2> ${log} | \
-#         samtools view -Sub -F 0x4 -F 2048 -q 10 - | \
-#         samtools sort -@ ${N_CPU} -o ${bam} - && \
-#         samtools index ${bam}
-#     # convert bam to bed
-#     [[ ! -f ${bed} ]] && \
-#         bedtools bamtobed -i ${bam} > ${bed} #
-#     # echo ${bed}
-# }
-# export -f align_hg38
-
-
-# function anno_bed() {
-#     local out_dir=$1
-#     local in_bed=$2 # query
-#     local bname=$(basename ${in_bed/.bed/.anno.bed})
-#     local out_bed="${out_dir}/${bname}" # output 
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     ## Global variables: ANNO_PY, GENE_BED
-#     # GRCh38, all genes
-#     # local GENE_BED="/data/yulab/hiseq001/user/wangming/hts_y2h/data/db/Homo_sapiens.GRCh38.106.gene.bed.gz"
-#     # local ANNO_PY="/data/yulab/hiseq001/user/wangming/hts_y2h/scripts/anno_bed.py"
-#     [[ ! -f ${out_bed} ]] && python ${ANNO_PY} ${GENE_BED} ${in_bed} ${out_bed}
-# }
-# export -f anno_bed
-
-
-# # annotate fastq, from 
-# function anno_fq() {
-#     local out_dir=$1
-#     local fq_in=$2
-#     local fname="$(basename ${fq_in/.fq.gz})"
-#     local bed="${out_dir}/${fname}.bed"
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     # 1. map to hg38 genome
-#     [[ ! -f ${bed} ]] && align_hg38 ${out_dir} ${fq_in}
-#     # 2. get annotation (gene_name)
-#     anno_bed ${out_dir} ${bed} 
-#     # 3. log
-#     echo "... save to file: ${bed}"
-# }
-# export -f anno_fq
-
-
-# # output common reads (by_id) from two fastq files
-# # save to new directory
-# function merge_fq_by_id() {
-#     local out_dir=$1
-#     local fq1=$2
-#     local fq2=$3
-#     [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-#     # file-1:
-#     out1="${out_dir}/$(basename ${fq1/.fq/.fa})"
-#     [[ -f ${out1} ]] && echo "... file exists: ${out1}" || \
-#         bioawk -cfastx 'FNR==NR {a[$name]=$seq; next} {if($name in a){print ">"$name"\n"a[$name]"\n"}}' ${fq1} ${fq2} | gzip > ${out1}
-#     # file-2:
-#     out2="${out_dir}/$(basename ${fq2/.fq/.fa})"
-#     [[ -f ${out2} ]] && echo "... file exists: ${out2}" || \
-#         bioawk -cfastx 'FNR==NR {a[$name]=$seq; next} {if($name in a){print ">"$name"\n"a[$name]"\n"}}' ${fq2} ${fq1} | gzip > ${out2}
-# }
-# export -f merge_fq_by_id
-
-
-# input: bed6+pos+gene_name
-# ouput: read_id,gene_name,gene_name
-function merge_bed_by_id() {
+# convert gtf to bed, and bgzip compress for tabix
+# para: <out_dir> <GENE_GTF>
+function gtf2bed() {
+    [[ $# -lt 2 ]] && echo "Usage: gtf2bed <out_dir> <gtf>" && return 1
     local out_dir=$1
-    local bed1=$2
-    local bed2=$3
-    [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
-    # file-1:
-    out1="${out_dir}/$(basename ${bed1/.bed/.read12.bed})"
-    [[ ! -f ${out1} ]] && \
-        awk 'FNR==NR {a[$4]=$8; next} {if($4 in a){print $4,a[$4],$8}}' ${bed1} ${bed2} > ${out1}
-    # # file-2:
-    # out1="${out_dir}/$(basename ${bed1/.bed/.read12.bed})"
-    # [[ ! -f ${out2} ]] && \
-    #     awk 'FNR==NR {a[$4]=$8; next} {if($4 in a){print $4,$8,a[$4]}}' ${bed2} ${bed1} > ${out2}
-    ## log
-    echo "... $(wc -l ${out1})"
+    local gtf=$2 # Ensembl gtf
+    local gname=$(basename ${gtf%.gz})
+    gname=${gname%.gtf} # trim suffix
+    local bed="${out_dir}/${gname}.bed.gz" # bgzipped compressed
+    if [[ ! -f ${bed} ]]
+    then
+        [[ ! -d ${out_dir} ]] && mkdir -p ${out_dir}
+        local bed_dir="${out_dir}/gene_files"
+        local bed_raw="${bed_dir}/${gname}.gene.f-1.pc.g100.bed"
+        local log_raw="${out_dir}/${gname}.gene.f-1.pc.g100.log"
+        [[ ! -d ${bed_dir} ]] && mkdir -p ${bed_dir}
+        python ${PARSE_GTF} -o ${bed_dir} -f gene -g protein_coding -gs 100 -fs -1 -i ${gtf} 1> ${log_raw}
+        # gzipped, tabix
+        bgzip -c ${bed_raw} > ${bed}
+        tabix -p bed ${bed}
+    fi
+    [[ ! -f ${bed} ]] && echo "bed file not exists" && return 1
+    echo ${bed}
 }
-export -f merge_bed_by_id
+export -f gtf2bed
+
+
+# Prepare gene_bed file, from GENE_GTF
+# output: <out_dir> <GENE_GTF>
+function get_gene_bed() {
+    local bed=$(gtf2bed $1 $2)
+    [[ -f ${bed} ]] && echo ${bed}
+}
+export -f get_gene_bed
 
 
 # # wrap all steps
@@ -327,8 +234,6 @@ export -f merge_bed_by_id
 ## cutadapt
 ## vector-1: TAGAACCCAGCTTTC 
 ## vector-2: GATTATAAGGATGAC
-
-
 # prefix
 function fx_prefix() {
     local fq=$1
@@ -449,7 +354,6 @@ function trim_3ad() {
     local fname=$(fx_prefix ${fq1}) # prefix, trim _[12].fq.gz
     local vname=$(get_ad_name ${ad}) # v1,v2,attL
     local suffix=$(get_suffix ${ad} ${ad_in_read}) # r1v1, r2v2, ...
-    # echo "!!!-1 ${fname}"
     # prepare files
     local out_sub="${out_dir}/${vname}"
     local prefix="${out_dir}/${vname}/${fname}.${suffix}"
@@ -614,22 +518,22 @@ function wrap_stat() {
     local f8=($(fmt_stat ${s8} 1)) #
     ## output, formatted
     echo ${fname} #
-    echo "├── Tn5 (${f1[0]})"
-    echo "│   ├── attL+ (${f2[0]})*"
-    echo "│   │   ├── read1:vector1+ (${f3[0]})*"  # !!! bug1
-    echo "│   │   │   ├── read2:vector2+ (${f5[0]})*"
-    echo "│   │   │   └── read2:vector2- (${f5[1]})"
-    echo "│   │   └── read1:vector1- (${f3[1]})"
-    echo "│   │       ├── read2:vector2+ (${f6[0]})*"
-    echo "│   │       └── read2:vector2- (${f6[1]})"
-    echo "│   └── attL- (${f2[1]})"
-    echo "│       ├── read1:vector1+ (${f4[0]})*"
-    echo "│       │   ├── read2:vector2+ (${f7[0]})*"
-    echo "│       │   └── read2:vector2- (${f7[1]})"
-    echo "│       └── read1:vector1- (${f4[1]})"
-    echo "│           ├── read2:vector2+ (${f8[0]})*"
-    echo "│           └── read2:vector2- (${f8[1]})"
-    echo "└── Too-short (${f1[1]})"
+    echo "├── Tn5 .........................(${f1[0]})"
+    echo "│   ├── attL+ ...................(${f2[0]})*"
+    echo "│   │   ├── read1:vector1+ ......(${f3[0]})*"  # !!! bug1
+    echo "│   │   │   ├── read2:vector2+ ..(${f5[0]})*"
+    echo "│   │   │   └── read2:vector2- ..(${f5[1]})"
+    echo "│   │   └── read1:vector1- ......(${f3[1]})"
+    echo "│   │       ├── read2:vector2+ ..(${f6[0]})*"
+    echo "│   │       └── read2:vector2- ..(${f6[1]})"
+    echo "│   └── attL- ...................(${f2[1]})"
+    echo "│       ├── read1:vector1+ ......(${f4[0]})*"
+    echo "│       │   ├── read2:vector2+ ..(${f7[0]})*"
+    echo "│       │   └── read2:vector2- ..(${f7[1]})"
+    echo "│       └── read1:vector1- ......(${f4[1]})"
+    echo "│           ├── read2:vector2+ ..(${f8[0]})*"
+    echo "│           └── read2:vector2- ..(${f8[1]})"
+    echo "└── discard .....................(${f1[1]})"
     echo ""
     echo "* indicated the count of output and too-short reads,"
     echo "  it could be larger than sum of (+/-)"
@@ -637,21 +541,23 @@ function wrap_stat() {
 }
 export -f wrap_stat
 
-# ├── tn5 (1234, 100.0%)
-# │   ├── attL(+) (1234, 100.0%)
-# │   │   ├── read1:vector-1(+) (1234, 100.0%)
-# │   │   │   ├── read2:vector-2(+) (1234, 100.0%)
-# │   │   │   └── read2:vector-2(-) (1234, 100.0%)
-# │   │   └── read1:vector-1(-) (1234, 100.0%)
-# │   │       ├── read2:vector-2(+) (1234, 100.0%)
-# │   │       └── read2:vector-2(-) (1234, 100.0%)
-# │   └── attL(-) (1234, 100.0%)
-# │       ├── read1:vector-1(+) (1234, 100.0%)
-# │       │   ├── read2:vector-2(+) (1234, 100.0%)
-# │       │   └── read2:vector-2(-) (1234, 100.0%)
-# │       └── read1:vector-1(-) (1234, 100.0%)
-# │           ├── read2:vector-2(+) (1234, 100.0%)
-# │           └── read2:vector-2(-) (1234, 100.0%)
+
+# annotate fq_pair within directory
+# para: <gene_bed> <fq_dir>
+function anno_dir() {
+    # check fq files within <fq_dir>
+    local gene_bed=$1
+    local fq_dir=$2
+    local n_fq=$(ls ${fq_dir}/ 2>/dev/null | grep -c 1.fq.gz) #
+    [[ ${n_fq} -eq 0 ]] && echo "No fq files found: ${fq_dir}" && return 1
+    for fq1 in ${fq_dir}/*1.fq.gz 
+    do 
+        local fq2="${fq1%1.fq.gz}2.fq.gz"
+        local anno_dir="${fq_dir}/anno"
+        bash ${ANNO_FQ_PAIR} ${anno_dir} ${gene_bed} ${fq1} ${fq2} # anno
+    done
+}
+export -f anno_dir
 
 
 ## run analysis
@@ -665,15 +571,16 @@ function hts_y2h() {
     out_dir=$(realpath -s ${out_dir})
     fq1=$(realpath -s ${fq1})
     fq2=$(realpath -s ${fq2})
-    # step 0. init
-    echo "[0/x] - working in read1-read2 mode"
-    # step 1. remove Tn5 adapters
+    # prepare gene bed files
+    echo "preparing gene_bed file"
+    local gene_bed=$(get_gene_bed ${out_dir}/db ${GENE_GTF}) # global variables
+    echo "working in read1-read2 mode"
     echo "[1/x] - remove Tn5 adapters from both read1 and read2"
     local prefix1=$(trim_3ad_tn5 ${out_dir} ${fq1} ${fq2} ${TN5})
     local tn5_fq1="${prefix1}_1.fq.gz"
     local tn5_fq2="${prefix1}_2.fq.gz"
+    anno_dir ${gene_bed} "${out_dir}/tn5"
     echo 1. ${prefix1}
-    # step 2. find attL in read1 or read2
     echo "[2/x] - check attL in read1"
     local attL_dir="${out_dir}/tn5"
     local prefix2=$(trim_3ad ${attL_dir} ${tn5_fq1} ${tn5_fq2} ${ATTLs} 3) # 3=read1,read2 
@@ -681,8 +588,8 @@ function hts_y2h() {
     local attLp_fq2="${prefix2}+_2.fq.gz" # p=plus,+, m=minus,-
     local attLm_fq1="${prefix2}-_1.fq.gz" # p=plus,+, m=minus,-
     local attLm_fq2="${prefix2}-_2.fq.gz" # p=plus,+, m=minus,-
+    anno_dir ${gene_bed} ${attL_dir}/attL
     echo 2. ${prefix2}
-    # step 3. find vector-1 in read1
     echo "[3/x] - find vector-1 in read1"
     local vec1_dir="${out_dir}/tn5/attL"
     local prefix31=$(trim_3ad ${vec1_dir} ${attLp_fq1} ${attLp_fq2} ${VEC1} 1)
@@ -696,8 +603,8 @@ function hts_y2h() {
     local Lmv1p_fq2="${prefix32}+_2.fq.gz" # p=plus,+, m=minus,-
     local Lmv1m_fq1="${prefix32}-_1.fq.gz" # p=plus,+, m=minus,-
     local Lmv1m_fq2="${prefix32}-_2.fq.gz" # p=plus,+, m=minus,-
+    anno_dir ${gene_bed} ${vec1_dir}/v1
     echo 4. ${prefix32}
-    # step 4. find vector-2 in read2
     echo "[4/x] - find vector-2 in read2"
     local vec2_dir="${out_dir}/tn5/attL/v1"
     # Lpv1pv2(p|m)
@@ -708,19 +615,17 @@ function hts_y2h() {
     local prefix43=$(trim_3ad ${vec2_dir} ${Lmv1p_fq1} ${Lmv1p_fq2} ${VEC2} 2)
     # Lmv1mv2(p|m)
     local prefix44=$(trim_3ad ${vec2_dir} ${Lmv1m_fq1} ${Lmv1m_fq2} ${VEC2} 2)
-    # step 5. wrap statistics
+    anno_dir ${gene_bed} ${vec2_dir}/v2
     echo "[5/x] - wrap all statistics"
     local summary="${out_dir}/summary.txt"
     wrap_stat ${out_dir} ${fq1} > ${summary}
     echo "save stat to file: ${summary}"
-    # step 6. finish
     echo "[6/x] - finish"
 }
 export -f hts_y2h
 
 
-# [[ $# -lt 3 ]] && echo "Usage: hts_y2h.sh <out_dir> <fq1> <fq2>" && exit 1
 status=$(check_commands)
-[[ ${status} = *no* ]] && echo "!!! error, check above missing files" && exit 1
+[[ ${status} = *failed* ]] && echo "!!! error, check above missing files" && exit 1
 hts_y2h $@
 
